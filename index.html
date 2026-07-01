@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Artifact Index</title>
+<meta name="description" content="A working catalog of projects.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="drawer-texture" aria-hidden="true"></div>
+
+<header class="hero">
+  <div class="hero-inner">
+    <p class="eyebrow">A WORKING CATALOG</p>
+    <h1>The Artifact&nbsp;Index</h1>
+    <p class="hero-sub">Every project, filed and cross-referenced. Pulled live from a single source of truth — edit one sheet, the index updates itself.</p>
+    <p class="meta-line" id="meta-line">loading entries…</p>
+  </div>
+</header>
+
+<main>
+  <section class="catalog" id="catalog" aria-live="polite">
+    <!-- cards injected here -->
+  </section>
+
+  <section class="empty-state" id="empty-state" hidden>
+    <div class="empty-card">
+      <p class="empty-tag">DRAWER EMPTY</p>
+      <h2>Nothing filed yet</h2>
+      <p>Add rows to your linked sheet, or edit <code>links.csv</code> directly, using columns: <code>title, url, description</code>.</p>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <p>Filed with <a href="https://github.com" target="_blank" rel="noopener">Git</a>, thumbnails fetched on the fly — nothing here is hand-uploaded.</p>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="script.js"></script>
+</body>
+</html>

@@ -3,47 +3,584 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>The Artifact Index</title>
-<meta name="description" content="A working catalog of projects.">
+<title>The Board</title>
+
+<!--
+  SETUP
+  1. Deploy Code.gs as a Web App (Deploy > New deployment > Web app,
+     Execute as: Me, Who has access: Anyone). Copy the /exec URL.
+  2. Paste it into WEB_APP_URL below.
+  3. Your Sheet needs a tab named "Links" with header row:
+     id, title, url, description, x, y, rotation
+     Leave x / y / rotation blank — the board fills those in.
+-->
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 
-<link rel="stylesheet" href="style.css">
+<style>
+  :root {
+    --wood: #3b2a1c;
+    --wood-hi: #4d3620;
+    --cork: #b98a5c;
+    --cork-dark: #a97b4e;
+    --ink: #2b2117;
+    --brass: #d9b45c;
+    color-scheme: light;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    background: var(--wood);
+    font-family: "Inter", sans-serif;
+    color: #f1e6d3;
+  }
+
+  body {
+    background-image: radial-gradient(ellipse at top, var(--wood-hi), var(--wood) 70%);
+    min-height: 100vh;
+    padding-bottom: 140px;
+  }
+
+  header {
+    text-align: center;
+    padding: 2.75rem 1.5rem 1.5rem;
+  }
+
+  header h1 {
+    font-family: "Kalam", cursive;
+    font-weight: 700;
+    font-size: clamp(2rem, 5vw, 3rem);
+    margin: 0 0 0.3rem;
+    transform: rotate(-1.2deg);
+    display: inline-block;
+  }
+
+  header p {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.75rem;
+    letter-spacing: 0.06em;
+    color: rgba(241, 230, 211, 0.55);
+    margin: 0;
+  }
+
+  #board-wrap {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 1.25rem;
+  }
+
+  #board {
+    position: relative;
+    background:
+      radial-gradient(circle at 15% 20%, rgba(0,0,0,0.08) 0 2px, transparent 3px),
+      radial-gradient(circle at 65% 60%, rgba(0,0,0,0.08) 0 2px, transparent 3px),
+      radial-gradient(circle at 40% 85%, rgba(0,0,0,0.07) 0 2px, transparent 3px),
+      radial-gradient(circle at 85% 30%, rgba(0,0,0,0.07) 0 2px, transparent 3px),
+      radial-gradient(circle at 25% 55%, rgba(0,0,0,0.06) 0 2px, transparent 3px),
+      linear-gradient(var(--cork), var(--cork-dark));
+    border: 10px solid #2a1c11;
+    border-radius: 6px;
+    box-shadow:
+      inset 0 0 40px rgba(0,0,0,0.35),
+      0 20px 50px -20px rgba(0,0,0,0.7);
+    overflow: hidden;
+    transition: height 0.3s ease;
+  }
+
+  .note {
+    position: absolute;
+    width: 190px;
+    padding: 16px 14px 14px;
+    background: #f4e2a0;
+    border-radius: 2px;
+    box-shadow: 0 8px 16px -6px rgba(0,0,0,0.45);
+    cursor: pointer;
+    user-select: none;
+    touch-action: none;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .note { transition: box-shadow 0.15s ease; }
+    .note.dragging { transition: none; }
+  }
+
+  .note:hover { box-shadow: 0 12px 20px -6px rgba(0,0,0,0.5); }
+
+  .board.unlocked .note { cursor: grab; }
+  .board.unlocked .note.dragging { cursor: grabbing; z-index: 50; }
+
+  .pin {
+    position: absolute;
+    top: -9px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    box-shadow: 0 3px 4px rgba(0,0,0,0.4), inset 0 -2px 2px rgba(0,0,0,0.25), inset 0 2px 2px rgba(255,255,255,0.4);
+    pointer-events: none;
+  }
+
+  .note-title {
+    font-family: "Kalam", cursive;
+    font-weight: 700;
+    font-size: 1.05rem;
+    line-height: 1.2;
+    color: var(--ink);
+    margin: 0 0 0.35rem;
+  }
+
+  .note-desc {
+    font-size: 0.8rem;
+    line-height: 1.4;
+    color: rgba(43, 33, 23, 0.75);
+    margin: 0 0 0.5rem;
+  }
+
+  .note-url {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.65rem;
+    color: rgba(43, 33, 23, 0.55);
+    word-break: break-all;
+  }
+
+  /* ---------- Toolbar ---------- */
+
+  .toolbar {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 1.5rem;
+    padding: 1rem 1.5rem 1.25rem;
+    background: linear-gradient(to top, rgba(20,14,8,0.85), transparent);
+    z-index: 100;
+  }
+
+  .tag-btn {
+    font-family: "Inter", sans-serif;
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--ink);
+    background: #e9ddc4;
+    border: none;
+    padding: 0.5rem 0.85rem;
+    border-radius: 2px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.35);
+    cursor: pointer;
+    transform: rotate(-1deg);
+  }
+  .tag-btn:nth-of-type(2) { transform: rotate(1deg); }
+  .tag-btn:hover { filter: brightness(1.05); }
+  .tag-btn:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+
+  .cup-zone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .pin-cup {
+    position: relative;
+    width: 60px;
+    height: 50px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .pin-cup .cup-body {
+    position: absolute;
+    bottom: 0; left: 6px; right: 6px;
+    height: 30px;
+    background: linear-gradient(#6b7280, #454b54);
+    border-radius: 0 0 8px 8px;
+    box-shadow: inset 0 -5px 6px rgba(0,0,0,0.35), 0 4px 8px rgba(0,0,0,0.4);
+  }
+
+  .pin-cup .cup-pin {
+    position: absolute;
+    bottom: 22px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    box-shadow: 0 3px 4px rgba(0,0,0,0.4), inset 0 -2px 2px rgba(0,0,0,0.25), inset 0 2px 2px rgba(255,255,255,0.4);
+  }
+  .cup-pin::after {
+    content: "";
+    position: absolute;
+    top: 8px; left: 50%;
+    width: 1.5px; height: 12px;
+    background: #9a9a9a;
+    transform: translateX(-50%);
+  }
+
+  .status-line {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.68rem;
+    color: rgba(241, 230, 211, 0.6);
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  /* ---------- Passphrase modal ---------- */
+
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 7, 4, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+  }
+  .modal-overlay[hidden] { display: none; }
+
+  .modal-note {
+    width: 260px;
+    background: #f2c9c9;
+    padding: 1.5rem 1.4rem 1.4rem;
+    border-radius: 2px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+    transform: rotate(-0.6deg);
+    position: relative;
+  }
+  .modal-note .pin { background: #d64550; }
+
+  .modal-note h3 {
+    font-family: "Kalam", cursive;
+    margin: 0.4rem 0 0.6rem;
+    color: var(--ink);
+  }
+
+  .modal-note p {
+    font-size: 0.78rem;
+    color: rgba(43,33,23,0.75);
+    margin: 0 0 0.75rem;
+    line-height: 1.4;
+  }
+
+  .modal-note input {
+    width: 100%;
+    padding: 0.5rem 0.6rem;
+    border: 1px solid rgba(43,33,23,0.25);
+    border-radius: 3px;
+    font-family: "Inter", sans-serif;
+    font-size: 0.85rem;
+    margin-bottom: 0.6rem;
+  }
+
+  .modal-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+  }
+
+  .modal-actions button {
+    font-family: "Inter", sans-serif;
+    font-size: 0.78rem;
+    font-weight: 500;
+    padding: 0.4rem 0.75rem;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .modal-cancel { background: transparent; color: var(--ink); }
+  .modal-confirm { background: var(--ink); color: #f2c9c9; }
+
+  .modal-error {
+    font-size: 0.75rem;
+    color: #7a1c1c;
+    margin: -0.3rem 0 0.6rem;
+    min-height: 1em;
+  }
+</style>
 </head>
 <body>
 
-<div class="drawer-texture" aria-hidden="true"></div>
-
-<header class="hero">
-  <div class="hero-inner">
-    <p class="eyebrow">A WORKING CATALOG</p>
-    <h1>The Artifact&nbsp;Index</h1>
-    <p class="hero-sub">Every project, filed and cross-referenced. Pulled live from a single source of truth — edit one sheet, the index updates itself.</p>
-    <p class="meta-line" id="meta-line">loading entries…</p>
-  </div>
+<header>
+  <h1>The Board</h1>
+  <p id="meta-line">fetching notes…</p>
 </header>
 
-<main>
-  <section class="catalog" id="catalog" aria-live="polite">
-    <!-- cards injected here -->
-  </section>
+<div id="board-wrap">
+  <div id="board" class="board"></div>
+</div>
 
-  <section class="empty-state" id="empty-state" hidden>
-    <div class="empty-card">
-      <p class="empty-tag">DRAWER EMPTY</p>
-      <h2>Nothing filed yet</h2>
-      <p>Add rows to your linked sheet, or edit <code>links.csv</code> directly, using columns: <code>title, url, description</code>.</p>
+<div class="toolbar">
+  <button class="tag-btn" id="resetMeBtn">Reset for me</button>
+
+  <div class="cup-zone">
+    <button class="pin-cup" id="cupBtn" aria-pressed="false" aria-label="Pull a pin to rearrange notes">
+      <span class="cup-pin" style="left:10px; background:#d64550;"></span>
+      <span class="cup-pin" style="left:24px; background:#3d6cb9;"></span>
+      <span class="cup-pin" style="left:38px; background:#3f8f5f;"></span>
+      <span class="cup-body"></span>
+    </button>
+    <p class="status-line" id="statusLine">🔒 pinned — click the cup to rearrange</p>
+  </div>
+
+  <button class="tag-btn" id="revertBtn">Revert for everyone</button>
+</div>
+
+<div class="modal-overlay" id="modalOverlay" hidden>
+  <div class="modal-note">
+    <span class="pin"></span>
+    <h3>Revert for everyone?</h3>
+    <p>This resets the board to its default layout for every visitor. Enter the passphrase to confirm.</p>
+    <input type="password" id="passInput" placeholder="passphrase" autocomplete="off">
+    <p class="modal-error" id="modalError"></p>
+    <div class="modal-actions">
+      <button class="modal-cancel" id="modalCancel">Cancel</button>
+      <button class="modal-confirm" id="modalConfirm">Revert</button>
     </div>
-  </section>
-</main>
+  </div>
+</div>
 
-<footer class="site-footer">
-  <p>Filed with <a href="https://github.com" target="_blank" rel="noopener">Git</a>, thumbnails fetched on the fly — nothing here is hand-uploaded.</p>
-</footer>
+<script>
+const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwcBa_ip0JI8a_qG0aDtgII7on4TE95diK0lDuSbCdmR7QnJWjUHynXFSPggIxWY4vJ7w/exec";
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-<script src="script.js"></script>
+const NOTE_W = 190, ROW_H = 210, TOP_PAD = 40, SIDE_PAD = 30, GAP = 24;
+const NOTE_COLORS = ["#f4e2a0", "#f2c9c9", "#c9dcc0", "#c3d8e6", "#e7c9a9"];
+const PIN_COLORS  = ["#d64550", "#3d6cb9", "#3f8f5f", "#e0a72c", "#8a4fae"];
+
+const boardEl = document.getElementById("board");
+const metaLine = document.getElementById("meta-line");
+const statusLine = document.getElementById("statusLine");
+const cupBtn = document.getElementById("cupBtn");
+
+let items = [];      // in-memory working copy (used for render + drag)
+let unlocked = false;
+
+init();
+
+async function init() {
+  try {
+    const res = await fetch(WEB_APP_URL, { cache: "no-store" });
+    const raw = await res.json();
+    items = raw.map((r) => ({ ...r, hasStoredPos: r.x !== null && r.y !== null }));
+  } catch (err) {
+    console.error("Could not load board:", err);
+    metaLine.textContent = "couldn't load the board — check WEB_APP_URL";
+    return;
+  }
+
+  applyDefaultsWhereMissing();
+  metaLine.textContent = `${items.length} note${items.length === 1 ? "" : "s"} on the board`;
+  render();
+  window.addEventListener("resize", debounce(() => { relayoutHeight(); render(); }, 200));
+}
+
+/* ---------- layout ---------- */
+
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) { h = (h << 5) - h + s.charCodeAt(i); h |= 0; }
+  return Math.abs(h);
+}
+function seeded(seed, salt) {
+  const x = Math.sin(seed * 99991 + salt * 13.37) * 10000;
+  return x - Math.floor(x);
+}
+
+function boardWidthPx() {
+  return boardEl.clientWidth || boardEl.getBoundingClientRect().width || 900;
+}
+
+function computeDefaultLayout(list) {
+  const bw = boardWidthPx();
+  const cols = Math.max(2, Math.floor(bw / (NOTE_W + GAP)));
+  return list.map((item, i) => {
+    const row = Math.floor(i / cols), col = i % cols;
+    const h = hashStr(item.id);
+    const jitterXPct = (seeded(h, 1) - 0.5) * 10;
+    const jitterYpx = (seeded(h, 2) - 0.5) * 26;
+    const rot = (seeded(h, 3) - 0.5) * 14;
+    const leftPx = SIDE_PAD + col * (NOTE_W + GAP);
+    const x = (leftPx / bw) * 100 + jitterXPct;
+    const y = TOP_PAD + row * ROW_H + jitterYpx;
+    return { ...item, x, y, rotation: rot };
+  });
+}
+
+function applyDefaultsWhereMissing() {
+  const missing = items.filter((it) => !it.hasStoredPos);
+  if (missing.length === 0) return;
+  const defaults = computeDefaultLayout(items); // index-based, so compute over full list
+  items = items.map((it, i) => (it.hasStoredPos ? it : { ...it, x: defaults[i].x, y: defaults[i].y, rotation: defaults[i].rotation }));
+}
+
+function relayoutHeight() {
+  const bw = boardWidthPx();
+  const cols = Math.max(2, Math.floor(bw / (NOTE_W + GAP)));
+  const rows = Math.ceil(items.length / cols);
+  const minHeight = TOP_PAD + rows * ROW_H + 60;
+  const maxY = items.reduce((m, it) => Math.max(m, it.y || 0), 0);
+  boardEl.style.height = Math.max(minHeight, maxY + ROW_H) + "px";
+}
+
+/* ---------- render ---------- */
+
+function render() {
+  relayoutHeight();
+  boardEl.innerHTML = "";
+  boardEl.classList.toggle("unlocked", unlocked);
+
+  items.forEach((item) => {
+    const h = hashStr(item.id);
+    const bg = NOTE_COLORS[h % NOTE_COLORS.length];
+    const pin = PIN_COLORS[hashStr(item.id + "p") % PIN_COLORS.length];
+
+    let domain = item.url;
+    try { domain = new URL(item.url).hostname.replace(/^www\./, ""); } catch (_) {}
+
+    const note = document.createElement("div");
+    note.className = "note";
+    note.style.left = item.x + "%";
+    note.style.top = item.y + "px";
+    note.style.transform = `rotate(${item.rotation}deg)`;
+    note.style.background = bg;
+    note.dataset.id = item.id;
+
+    note.innerHTML = `
+      <span class="pin" style="background:${pin}"></span>
+      <p class="note-title">${escapeHtml(item.title)}</p>
+      ${item.description ? `<p class="note-desc">${escapeHtml(item.description)}</p>` : ""}
+      <p class="note-url">${escapeHtml(domain)}</p>
+    `;
+
+    note.addEventListener("click", (e) => {
+      if (unlocked) return; // dragging mode: clicks don't navigate
+      window.open(item.url, "_blank", "noopener");
+    });
+
+    note.addEventListener("pointerdown", (e) => startDrag(e, note, item));
+
+    boardEl.appendChild(note);
+  });
+}
+
+/* ---------- drag ---------- */
+
+function startDrag(e, noteEl, item) {
+  if (!unlocked) return;
+  e.preventDefault();
+  noteEl.setPointerCapture(e.pointerId);
+  noteEl.classList.add("dragging");
+
+  const boardRect = boardEl.getBoundingClientRect();
+  const startLeftPx = (item.x / 100) * boardRect.width;
+  const startTopPx = item.y;
+  const startPointerX = e.clientX, startPointerY = e.clientY;
+
+  function onMove(ev) {
+    const dx = ev.clientX - startPointerX;
+    const dy = ev.clientY - startPointerY;
+    let leftPx = clamp(startLeftPx + dx, 0, boardRect.width - NOTE_W);
+    let topPx = clamp(startTopPx + dy, 0, parseFloat(boardEl.style.height) - 140);
+    noteEl.style.left = (leftPx / boardRect.width) * 100 + "%";
+    noteEl.style.top = topPx + "px";
+  }
+
+  function onUp(ev) {
+    noteEl.classList.remove("dragging");
+    noteEl.releasePointerCapture(e.pointerId);
+    document.removeEventListener("pointermove", onMove);
+    document.removeEventListener("pointerup", onUp);
+
+    const finalLeftPct = parseFloat(noteEl.style.left);
+    const finalTopPx = parseFloat(noteEl.style.top);
+    const newRotation = (Math.random() - 0.5) * 12;
+    noteEl.style.transform = `rotate(${newRotation}deg)`;
+
+    item.x = finalLeftPct;
+    item.y = finalTopPx;
+    item.rotation = newRotation;
+    item.hasStoredPos = true;
+
+    postAction({ action: "move", id: item.id, x: item.x, y: item.y, rotation: item.rotation })
+      .catch((err) => console.warn("save failed, will stay local-only until reload:", err));
+  }
+
+  document.addEventListener("pointermove", onMove);
+  document.addEventListener("pointerup", onUp);
+}
+
+/* ---------- toolbar actions ---------- */
+
+cupBtn.addEventListener("click", () => {
+  unlocked = !unlocked;
+  cupBtn.setAttribute("aria-pressed", String(unlocked));
+  statusLine.textContent = unlocked
+    ? "📌 pin pulled — drag notes, click the cup to lock back in"
+    : "🔒 pinned — click the cup to rearrange";
+  boardEl.classList.toggle("unlocked", unlocked);
+});
+
+document.getElementById("resetMeBtn").addEventListener("click", () => {
+  items = computeDefaultLayout(items).map((it) => ({ ...it, hasStoredPos: false }));
+  render();
+});
+
+const modalOverlay = document.getElementById("modalOverlay");
+const passInput = document.getElementById("passInput");
+const modalError = document.getElementById("modalError");
+
+document.getElementById("revertBtn").addEventListener("click", () => {
+  modalError.textContent = "";
+  passInput.value = "";
+  modalOverlay.hidden = false;
+  passInput.focus();
+});
+document.getElementById("modalCancel").addEventListener("click", () => { modalOverlay.hidden = true; });
+
+document.getElementById("modalConfirm").addEventListener("click", async () => {
+  const pass = passInput.value;
+  if (!pass) { modalError.textContent = "enter a passphrase"; return; }
+  try {
+    const result = await postAction({ action: "revertGlobal", passphrase: pass });
+    if (result.ok) {
+      modalOverlay.hidden = true;
+      items = computeDefaultLayout(items).map((it) => ({ ...it, hasStoredPos: false }));
+      render();
+    } else {
+      modalError.textContent = result.error || "that didn't work";
+    }
+  } catch (err) {
+    modalError.textContent = "couldn't reach the board — try again";
+  }
+});
+
+/* ---------- helpers ---------- */
+
+async function postAction(payload) {
+  const res = await fetch(WEB_APP_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" }, // avoids CORS preflight against Apps Script
+    body: JSON.stringify(payload),
+  });
+  return res.json();
+}
+
+function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str || "";
+  return div.innerHTML;
+}
+
+function debounce(fn, ms) {
+  let t;
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+</script>
 </body>
 </html>

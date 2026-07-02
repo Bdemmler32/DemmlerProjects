@@ -11,8 +11,8 @@
      Execute as: Me, Who has access: Anyone). Copy the /exec URL.
   2. Paste it into WEB_APP_URL below.
   3. Your Sheet needs a tab named "Links" with header row:
-     id, title, url, description, x, y, rotation
-     Leave x / y / rotation blank — the board fills those in.
+     id, title, url, description, x, y, rotation, layer
+     Leave x / y / rotation / layer blank — the board fills those in.
 -->
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -48,6 +48,8 @@
   header {
     text-align: center;
     padding: 2.75rem 1.5rem 1.5rem;
+    position: relative;
+    z-index: 2;
   }
 
   header h1 {
@@ -70,11 +72,13 @@
   #board-wrap {
     max-width: 1200px;
     margin: 0 auto;
-    padding: 0 1.25rem;
+    padding: 0 80px 120px;
+    overflow: visible;
   }
 
   #board {
     position: relative;
+    z-index: 0;
     background:
       radial-gradient(circle at 15% 20%, rgba(0,0,0,0.08) 0 2px, transparent 3px),
       radial-gradient(circle at 65% 60%, rgba(0,0,0,0.08) 0 2px, transparent 3px),
@@ -87,7 +91,7 @@
     box-shadow:
       inset 0 0 40px rgba(0,0,0,0.35),
       0 20px 50px -20px rgba(0,0,0,0.7);
-    overflow: hidden;
+    overflow: visible;
     transition: height 0.3s ease;
   }
 
@@ -101,17 +105,17 @@
     cursor: pointer;
     user-select: none;
     touch-action: none;
+    z-index: 1;
   }
 
   @media (prefers-reduced-motion: no-preference) {
     .note { transition: box-shadow 0.15s ease; }
-    .note.dragging { transition: none; }
   }
 
   .note:hover { box-shadow: 0 12px 20px -6px rgba(0,0,0,0.5); }
 
   .board.unlocked .note { cursor: grab; }
-  .board.unlocked .note.dragging { cursor: grabbing; z-index: 50; }
+  .board.unlocked .note.dragging { cursor: grabbing; }
 
   .pin {
     position: absolute;
@@ -123,6 +127,7 @@
     border-radius: 50%;
     box-shadow: 0 3px 4px rgba(0,0,0,0.4), inset 0 -2px 2px rgba(0,0,0,0.25), inset 0 2px 2px rgba(255,255,255,0.4);
     pointer-events: none;
+    z-index: 2;
   }
 
   .note-title {
@@ -131,8 +136,31 @@
     font-size: 1.05rem;
     line-height: 1.2;
     color: var(--ink);
-    margin: 0 0 0.35rem;
+    margin: 0 0 0.4rem;
   }
+
+  .note-thumb {
+    width: 100%;
+    height: 64px;
+    border-radius: 2px;
+    overflow: hidden;
+    background: rgba(0,0,0,0.06);
+    margin-bottom: 0.45rem;
+  }
+
+  .note-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    opacity: 0;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .note-thumb img { transition: opacity 0.35s ease; }
+  }
+
+  .note-thumb img.loaded { opacity: 1; }
 
   .note-desc {
     font-size: 0.8rem;
@@ -159,7 +187,7 @@
     gap: 1.5rem;
     padding: 1rem 1.5rem 1.25rem;
     background: linear-gradient(to top, rgba(20,14,8,0.85), transparent);
-    z-index: 100;
+    z-index: 1000;
   }
 
   .tag-btn {
@@ -239,7 +267,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 200;
+    z-index: 2000;
   }
   .modal-overlay[hidden] { display: none; }
 
@@ -327,19 +355,19 @@
     <p class="status-line" id="statusLine">🔒 pinned — click the cup to rearrange</p>
   </div>
 
-  <button class="tag-btn" id="revertBtn">Revert for everyone</button>
+  <button class="tag-btn" id="revertBtn">Reset for everyone</button>
 </div>
 
 <div class="modal-overlay" id="modalOverlay" hidden>
   <div class="modal-note">
     <span class="pin"></span>
-    <h3>Revert for everyone?</h3>
-    <p>This resets the board to its default layout for every visitor. Enter the passphrase to confirm.</p>
+    <h3>Reset for everyone?</h3>
+    <p>This resets the board to the default grid for every visitor. Enter the passphrase to confirm.</p>
     <input type="password" id="passInput" placeholder="passphrase" autocomplete="off">
     <p class="modal-error" id="modalError"></p>
     <div class="modal-actions">
       <button class="modal-cancel" id="modalCancel">Cancel</button>
-      <button class="modal-confirm" id="modalConfirm">Revert</button>
+      <button class="modal-confirm" id="modalConfirm">Reset</button>
     </div>
   </div>
 </div>
@@ -350,18 +378,33 @@ const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwcBa_ip0JI8a_qG0aD
 const NOTE_W = 190, ROW_H = 210, TOP_PAD = 40, SIDE_PAD = 30, GAP = 24;
 const NOTE_COLORS = ["#f4e2a0", "#f2c9c9", "#c9dcc0", "#c3d8e6", "#e7c9a9"];
 const PIN_COLORS  = ["#d64550", "#3d6cb9", "#3f8f5f", "#e0a72c", "#8a4fae"];
+const LOCAL_OVERRIDE_KEY = "board-local-layout-v1";
+
+function ogImageUrl(url) {
+  return `https://api.microlink.io/?url=${encodeURIComponent(url)}&embed=image.url`;
+}
+function screenshotUrl(url) {
+  return `https://api.microlink.io/?url=${encodeURIComponent(url)}&screenshot=true&meta=false&embed=screenshot.url&waitFor=800`;
+}
 
 const boardEl = document.getElementById("board");
 const metaLine = document.getElementById("meta-line");
 const statusLine = document.getElementById("statusLine");
 const cupBtn = document.getElementById("cupBtn");
+const resetMeBtn = document.getElementById("resetMeBtn");
 
-let items = [];      // in-memory working copy (used for render + drag)
+let items = [];
 let unlocked = false;
+let maxLayer = 0;
+let localOverrideActive = false;
 
-init();
+loadAndRender();
+window.addEventListener("resize", debounce(() => { relayoutHeight(); render(); }, 200));
 
-async function init() {
+/* ---------- load + apply state ---------- */
+
+async function loadAndRender() {
+  metaLine.textContent = "fetching notes…";
   try {
     const res = await fetch(WEB_APP_URL, { cache: "no-store" });
     const raw = await res.json();
@@ -373,47 +416,48 @@ async function init() {
   }
 
   applyDefaultsWhereMissing();
+
+  maxLayer = items.length;
+  items.forEach((it) => { if (it.layer && it.layer > maxLayer) maxLayer = it.layer; });
+
+  const override = getLocalOverride();
+  if (override) {
+    items = items.map((it) =>
+      override[it.id] ? { ...it, x: override[it.id].x, y: override[it.id].y, rotation: override[it.id].rotation } : it
+    );
+  }
+  setResetButtonState(!!override);
+
   metaLine.textContent = `${items.length} note${items.length === 1 ? "" : "s"} on the board`;
   render();
-  window.addEventListener("resize", debounce(() => { relayoutHeight(); render(); }, 200));
 }
 
-/* ---------- layout ---------- */
+/* ---------- grid layout (default + reset target) ---------- */
 
 function hashStr(s) {
   let h = 0;
   for (let i = 0; i < s.length; i++) { h = (h << 5) - h + s.charCodeAt(i); h |= 0; }
   return Math.abs(h);
 }
-function seeded(seed, salt) {
-  const x = Math.sin(seed * 99991 + salt * 13.37) * 10000;
-  return x - Math.floor(x);
-}
 
 function boardWidthPx() {
   return boardEl.clientWidth || boardEl.getBoundingClientRect().width || 900;
 }
 
-function computeDefaultLayout(list) {
+function computeGridLayout(list) {
   const bw = boardWidthPx();
   const cols = Math.max(2, Math.floor(bw / (NOTE_W + GAP)));
   return list.map((item, i) => {
     const row = Math.floor(i / cols), col = i % cols;
-    const h = hashStr(item.id);
-    const jitterXPct = (seeded(h, 1) - 0.5) * 10;
-    const jitterYpx = (seeded(h, 2) - 0.5) * 26;
-    const rot = (seeded(h, 3) - 0.5) * 14;
     const leftPx = SIDE_PAD + col * (NOTE_W + GAP);
-    const x = (leftPx / bw) * 100 + jitterXPct;
-    const y = TOP_PAD + row * ROW_H + jitterYpx;
-    return { ...item, x, y, rotation: rot };
+    const x = (leftPx / bw) * 100;
+    const y = TOP_PAD + row * ROW_H;
+    return { ...item, x, y, rotation: 0 };
   });
 }
 
 function applyDefaultsWhereMissing() {
-  const missing = items.filter((it) => !it.hasStoredPos);
-  if (missing.length === 0) return;
-  const defaults = computeDefaultLayout(items); // index-based, so compute over full list
+  const defaults = computeGridLayout(items);
   items = items.map((it, i) => (it.hasStoredPos ? it : { ...it, x: defaults[i].x, y: defaults[i].y, rotation: defaults[i].rotation }));
 }
 
@@ -422,8 +466,20 @@ function relayoutHeight() {
   const cols = Math.max(2, Math.floor(bw / (NOTE_W + GAP)));
   const rows = Math.ceil(items.length / cols);
   const minHeight = TOP_PAD + rows * ROW_H + 60;
-  const maxY = items.reduce((m, it) => Math.max(m, it.y || 0), 0);
-  boardEl.style.height = Math.max(minHeight, maxY + ROW_H) + "px";
+  boardEl.style.height = minHeight + "px";
+}
+
+/* ---------- local (per-browser) override ---------- */
+
+function getLocalOverride() {
+  try { return JSON.parse(localStorage.getItem(LOCAL_OVERRIDE_KEY)); } catch (e) { return null; }
+}
+function setLocalOverride(map) { localStorage.setItem(LOCAL_OVERRIDE_KEY, JSON.stringify(map)); }
+function clearLocalOverride() { localStorage.removeItem(LOCAL_OVERRIDE_KEY); }
+
+function setResetButtonState(active) {
+  localOverrideActive = active;
+  resetMeBtn.textContent = active ? "Revert to global" : "Reset for me";
 }
 
 /* ---------- render ---------- */
@@ -433,7 +489,7 @@ function render() {
   boardEl.innerHTML = "";
   boardEl.classList.toggle("unlocked", unlocked);
 
-  items.forEach((item) => {
+  items.forEach((item, i) => {
     const h = hashStr(item.id);
     const bg = NOTE_COLORS[h % NOTE_COLORS.length];
     const pin = PIN_COLORS[hashStr(item.id + "p") % PIN_COLORS.length];
@@ -447,35 +503,54 @@ function render() {
     note.style.top = item.y + "px";
     note.style.transform = `rotate(${item.rotation}deg)`;
     note.style.background = bg;
+    note.style.zIndex = item.layer != null ? item.layer : i + 1;
     note.dataset.id = item.id;
 
     note.innerHTML = `
       <span class="pin" style="background:${pin}"></span>
       <p class="note-title">${escapeHtml(item.title)}</p>
+      <div class="note-thumb"><img alt="" loading="lazy"></div>
       ${item.description ? `<p class="note-desc">${escapeHtml(item.description)}</p>` : ""}
       <p class="note-url">${escapeHtml(domain)}</p>
     `;
 
-    note.addEventListener("click", (e) => {
-      if (unlocked) return; // dragging mode: clicks don't navigate
+    note.addEventListener("click", () => {
+      if (unlocked) return;
       window.open(item.url, "_blank", "noopener");
     });
-
     note.addEventListener("pointerdown", (e) => startDrag(e, note, item));
 
     boardEl.appendChild(note);
+    loadThumbnail(note.querySelector(".note-thumb img"), item.url);
   });
 }
 
-/* ---------- drag ---------- */
+function loadThumbnail(img, url) {
+  img.onload = () => img.classList.add("loaded");
+  img.onerror = () => {
+    if (img.dataset.stage === "screenshot") {
+      img.onerror = null;
+      img.closest(".note-thumb").style.display = "none";
+      return;
+    }
+    img.dataset.stage = "screenshot";
+    img.src = screenshotUrl(url);
+  };
+  img.dataset.stage = "og";
+  img.src = ogImageUrl(url);
+}
+
+/* ---------- drag (pin stays in bounds, note body can overflow) ---------- */
 
 function startDrag(e, noteEl, item) {
   if (!unlocked) return;
   e.preventDefault();
   noteEl.setPointerCapture(e.pointerId);
   noteEl.classList.add("dragging");
+  noteEl.style.zIndex = 9999;
 
   const boardRect = boardEl.getBoundingClientRect();
+  const boardHeight = parseFloat(boardEl.style.height) || boardRect.height;
   const startLeftPx = (item.x / 100) * boardRect.width;
   const startTopPx = item.y;
   const startPointerX = e.clientX, startPointerY = e.clientY;
@@ -483,13 +558,21 @@ function startDrag(e, noteEl, item) {
   function onMove(ev) {
     const dx = ev.clientX - startPointerX;
     const dy = ev.clientY - startPointerY;
-    let leftPx = clamp(startLeftPx + dx, 0, boardRect.width - NOTE_W);
-    let topPx = clamp(startTopPx + dy, 0, parseFloat(boardEl.style.height) - 140);
+    let leftPx = startLeftPx + dx;
+    let topPx = startTopPx + dy;
+
+    // clamp the PIN (note's horizontal center, and its top edge) inside the board —
+    // the note body itself is free to hang off any side.
+    const pinX = leftPx + NOTE_W / 2;
+    const clampedPinX = clamp(pinX, 0, boardRect.width);
+    leftPx = clampedPinX - NOTE_W / 2;
+    topPx = clamp(topPx, 0, boardHeight);
+
     noteEl.style.left = (leftPx / boardRect.width) * 100 + "%";
     noteEl.style.top = topPx + "px";
   }
 
-  function onUp(ev) {
+  function onUp() {
     noteEl.classList.remove("dragging");
     noteEl.releasePointerCapture(e.pointerId);
     document.removeEventListener("pointermove", onMove);
@@ -500,12 +583,16 @@ function startDrag(e, noteEl, item) {
     const newRotation = (Math.random() - 0.5) * 12;
     noteEl.style.transform = `rotate(${newRotation}deg)`;
 
+    maxLayer += 1;
+    noteEl.style.zIndex = maxLayer;
+
     item.x = finalLeftPct;
     item.y = finalTopPx;
     item.rotation = newRotation;
+    item.layer = maxLayer;
     item.hasStoredPos = true;
 
-    postAction({ action: "move", id: item.id, x: item.x, y: item.y, rotation: item.rotation })
+    postAction({ action: "move", id: item.id, x: item.x, y: item.y, rotation: item.rotation, layer: item.layer })
       .catch((err) => console.warn("save failed, will stay local-only until reload:", err));
   }
 
@@ -524,9 +611,20 @@ cupBtn.addEventListener("click", () => {
   boardEl.classList.toggle("unlocked", unlocked);
 });
 
-document.getElementById("resetMeBtn").addEventListener("click", () => {
-  items = computeDefaultLayout(items).map((it) => ({ ...it, hasStoredPos: false }));
-  render();
+resetMeBtn.addEventListener("click", () => {
+  if (!localOverrideActive) {
+    const grid = computeGridLayout(items);
+    const map = {};
+    grid.forEach((it) => { map[it.id] = { x: it.x, y: it.y, rotation: it.rotation }; });
+    setLocalOverride(map);
+    items = items.map((it) => ({ ...it, x: map[it.id].x, y: map[it.id].y, rotation: map[it.id].rotation }));
+    setResetButtonState(true);
+    render();
+  } else {
+    clearLocalOverride();
+    setResetButtonState(false);
+    loadAndRender(); // pulls fresh global state, in case others moved things meanwhile
+  }
 });
 
 const modalOverlay = document.getElementById("modalOverlay");
@@ -548,8 +646,9 @@ document.getElementById("modalConfirm").addEventListener("click", async () => {
     const result = await postAction({ action: "revertGlobal", passphrase: pass });
     if (result.ok) {
       modalOverlay.hidden = true;
-      items = computeDefaultLayout(items).map((it) => ({ ...it, hasStoredPos: false }));
-      render();
+      clearLocalOverride();
+      setResetButtonState(false);
+      loadAndRender();
     } else {
       modalError.textContent = result.error || "that didn't work";
     }

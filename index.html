@@ -380,9 +380,6 @@ const NOTE_COLORS = ["#f4e2a0", "#f2c9c9", "#c9dcc0", "#c3d8e6", "#e7c9a9"];
 const PIN_COLORS  = ["#d64550", "#3d6cb9", "#3f8f5f", "#e0a72c", "#8a4fae"];
 const LOCAL_OVERRIDE_KEY = "board-local-layout-v1";
 
-function ogImageUrl(url) {
-  return `https://api.microlink.io/?url=${encodeURIComponent(url)}&embed=image.url`;
-}
 function screenshotUrl(url) {
   return `https://api.microlink.io/?url=${encodeURIComponent(url)}&screenshot=true&meta=false&embed=screenshot.url&waitFor=800`;
 }
@@ -528,16 +525,10 @@ function render() {
 function loadThumbnail(img, url) {
   img.onload = () => img.classList.add("loaded");
   img.onerror = () => {
-    if (img.dataset.stage === "screenshot") {
-      img.onerror = null;
-      img.closest(".note-thumb").style.display = "none";
-      return;
-    }
-    img.dataset.stage = "screenshot";
-    img.src = screenshotUrl(url);
+    img.onerror = null;
+    img.closest(".note-thumb").style.display = "none";
   };
-  img.dataset.stage = "og";
-  img.src = ogImageUrl(url);
+  img.src = screenshotUrl(url);
 }
 
 /* ---------- drag (pin stays in bounds, note body can overflow) ---------- */
